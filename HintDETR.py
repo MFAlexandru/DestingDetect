@@ -8,6 +8,15 @@ import torch
 
 # These models are mostly the same as the versions from Hugging face with a few modifications
 
+class DetrHungarianMatcher1to1(DetrHungarianMatcher):
+    @torch.no_grad()
+    def forward(self, outputs, targets):
+        _, num_queries = outputs["logits"].shape[:2]
+        return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(i, dtype=torch.int64)) for i in range(num_queries)]
+
+
+# below: bounding box utilities taken from https://github.com/facebookresearch/detr/blob/master/util/box_ops.py
+
 class DetrModelH(DetrModel):
     def __init__(self, config: DetrConfig):
         DetrPreTrainedModel.__init__(self, config)
@@ -100,8 +109,9 @@ class DetrModelH(DetrModel):
 
         # Fifth, sent query embeddings + position embeddings through the decoder (which is conditioned on the encoder output)
         query_position_embeddings = self.query_position_embeddings.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-        # query_position_embeddings = self.hint_position_layer(hint_position).unsqueeze(1).expand(batch_size, self.config.num_queries, self.config.d_model)
-        queries = self.hint_position_layer(hint_position).unsqueeze(1).expand(batch_size, self.config.num_queries, self.config.d_model)
+        # queries = self.hint_position_layer(hint_position).unsqueeze(1).expand(batch_size, self.config.num_queries, self.config.d_model)
+        queries = torch.zeros_like(query_position_embeddings)
+        queries[:, 0, :] = self.hint_position_layer(hint_position)
 
         # decoder outputs consists of (dec_features, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
@@ -187,7 +197,7 @@ class DetrForObjectDetectionH(DetrForObjectDetection):
         loss, loss_dict, auxiliary_outputs = None, None, None
         if labels is not None:
             # First: create the matcher
-            matcher = DetrHungarianMatcher(
+            matcher = DetrHungarianMatcher1to1(
                 class_cost=self.config.class_cost, bbox_cost=self.config.bbox_cost, giou_cost=self.config.giou_cost
             )
             # Second: create the criterion
